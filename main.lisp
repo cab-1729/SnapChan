@@ -6,7 +6,7 @@
 (uiop:chdir (uiop:pathname-directory-pathname *load-truename*))
 (format t "~a" (uiop:getcwd))
 ;;TODO: make loading paths absolute
-(load "parse.lsp")
+(load "parse.lisp")
 (ql:quickload "lisp-magick-wand")
 (ql:quickload "dexador")
 (ql:quickload "lquery")
@@ -69,7 +69,7 @@
 				(magick:pixel-set-color *pixel-wand* BACKGROUND)
 				(magick:set-background-color op-post *pixel-wand*)
 				(magick:read-image op-post (
-					format Nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
+					format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
 
 ~a</span>" BACKGROUND NAME (
 						lquery:$1 page "header div[class=post_data] span[class=post_poster_data] span[class=post_author]" (text) ;;op name
@@ -98,4 +98,42 @@
 		)
 	)
 )
-(magick:write-image *image* "test.png")
+(magick:pixel-set-color *pixel-wand* POSTBACKGROUND)
+(loop for post-id in *posts* do (
+	let* (
+		(post-selector (
+			format nil "article[id=~a]" post-id
+		))
+		(post-element (
+			lquery:$1 PAGE post-selector
+		))
+		(post-image (
+			magick:new-magick-wand
+		))
+	)
+	(magick:set-background-color post-image *pixel-wand*)
+	(magick:set-font post-image "fonts/ARIAL.TTF")
+	(magick:set-pointsize post-image 10.0)
+	(magick:read-image post-image (
+		format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
+
+~a</span>" POSTBACKGROUND NAME (
+			lquery:$1 post-element "div[class=post_wrapper] header div[class=post_data] span[class=post_poster_data] span[class=post_author]" (text) ;;poster name
+		)
+		TEXT (
+			local-time:format-timestring nil (
+				local-time:parse-timestring (
+					lquery:$1 post-element "div[class=post_wrapper] header div[class=post_data] span[class=time_wrap] time" (attr "datetime")
+				)
+			) :format '(
+				(:month 2) "/" (:day 2) "/" :short-year "(" :short-weekday ")" (:hour 2) ":" (:min 2) ":" (:sec 2)
+			)
+		) post-id QUOTEDBY (
+			lquery:$1 post-element "div[class=backlink_list] span[class=post_backlink]" (text)
+		) (
+			lquery:$1 post-element "div[class=text]" (text)
+		)
+	))
+	(magick:write-image post-image "test.png")
+))
+;; (magick:write-image *image* "test.png")

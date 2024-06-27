@@ -1,5 +1,5 @@
-(load "config.lsp")
-(load "capture.lsp")
+(load "config.lisp")
+(load "capture.lisp")
 (ql:quickload "cl-ppcre")
 (defvar *posts* (
 	mapcar (
