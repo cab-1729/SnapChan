@@ -11,6 +11,7 @@
 (ql:quickload "dexador")
 (ql:quickload "lquery")
 (ql:quickload "local-time")
+(ql:quickload "str")
 (defconstant PAGE (
 	lquery:$ (
 		initialize (
@@ -28,7 +29,7 @@
 ))
 (let* (
 	(op-id (
-		lquery:$1 PAGE "header div[class=post_data] a[data-function=highlight]" (attr "data-post")
+		lquery:$1 PAGE "header > div[class=post_data] > a[data-function=highlight]" (attr "data-post")
 	))
 	(op-image-element (
 		lquery:$1 PAGE "a[class=thread_image_link]"
@@ -72,18 +73,18 @@
 					format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
 
 ~a</span>" BACKGROUND NAME (
-						lquery:$1 page "header div[class=post_data] span[class=post_poster_data] span[class=post_author]" (text) ;;op name
+						lquery:$1 page "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
 					)
 					TEXT (
 						local-time:format-timestring nil (
 							local-time:parse-timestring (
-								lquery:$1 PAGE "header div[class=post_data] span[class=time_wrap] time" (attr "datetime")
+								lquery:$1 PAGE "header > div[class=post_data] > span[class=time_wrap] > time" (attr "datetime")
 							)
 						) :format '(
 							(:month 2) "/" (:day 2) "/" :short-year "(" :short-weekday ")" (:hour 2) ":" (:min 2) ":" (:sec 2)
 						)
 					) op-id QUOTEDBY (
-						lquery:$1 PAGE "div[class=backlink_list] span[class=post_backlink]" (text)
+						lquery:$1 PAGE "div[class=backlink_list] > span[class=post_backlink]" (text)
 					) (
 						lquery:$1 PAGE "div[class=text]" (text)
 					)
@@ -114,24 +115,34 @@
 	(magick:set-background-color post-image *pixel-wand*)
 	(magick:set-font post-image "fonts/ARIAL.TTF")
 	(magick:set-pointsize post-image 10.0)
+	(lquery:$ post-element "div[class=text] br" (replace-with "
+"))
+;;TODO: add "(OP)" when OP is quoted
+	(lquery:$ post-element "div[class=text] > span[class=greentext] > a[data-backlink=true]" (unwrap) (wrap-inner (format nil "<span foreground=\"~a\">" QUOTED)) (children) (unwrap)) ;; highlight quotes
+;;TODO:greentext
+;;TODO:links
+;;TODO:code
+;;TODO:/pol/ flags and ids
 	(magick:read-image post-image (
 		format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
 
 ~a</span>" POSTBACKGROUND NAME (
-			lquery:$1 post-element "div[class=post_wrapper] header div[class=post_data] span[class=post_poster_data] span[class=post_author]" (text) ;;poster name
+			lquery:$1 post-element "div[class=post_wrapper] > header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;poster name
 		)
 		TEXT (
 			local-time:format-timestring nil (
 				local-time:parse-timestring (
-					lquery:$1 post-element "div[class=post_wrapper] header div[class=post_data] span[class=time_wrap] time" (attr "datetime")
+					lquery:$1 post-element "div[class=post_wrapper] > header > div[class=post_data] > span[class=time_wrap] > time" (attr "datetime")
 				)
 			) :format '(
 				(:month 2) "/" (:day 2) "/" :short-year "(" :short-weekday ")" (:hour 2) ":" (:min 2) ":" (:sec 2)
 			)
 		) post-id QUOTEDBY (
-			lquery:$1 post-element "div[class=backlink_list] span[class=post_backlink]" (text)
+			lquery:$1 post-element "div[class=backlink_list] > span[class=post_backlink]" (text)
 		) (
-			lquery:$1 post-element "div[class=text]" (text)
+			str:substring 19 -7 (
+				lquery:$1 post-element "div[class=text]" (serialize)
+			)
 		)
 	))
 	(magick:write-image post-image "test.png")
