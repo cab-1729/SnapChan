@@ -8,5 +8,4 @@
 		ppcre:all-matches-as-strings ">>[0-9]{9}" INCLUDE
 	)
 ))
-(setq *posts* (remove "101125290" *posts* :test 'string-equal))
 (format t "~a" *posts*)

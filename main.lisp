@@ -12,10 +12,29 @@
 (ql:quickload "lquery")
 (ql:quickload "local-time")
 (ql:quickload "str")
+(defun pangofy (element)
+	(progn
+		(lquery:$ element "br" (replace-with "
+"))
+		(lquery:$ element "span[class=greentext] > a[class=backlink]" (wrap-inner (
+			format nil "<span foreground=~a>" QUOTED
+		)) (children) (unwrap) (unwrap) ) ;;quote
+		(lquery:$ element "a" (wrap-inner(
+			format nil "<span foreground=~a>" LINK
+		)) (children) (unwrap)) ;;link
+		(lquery:$ element "span[class=greentext]" (attr "foreground" GREENTEXT) (remove-attr "class"));;greentext
+		(string-trim
+			" " (vector-pop(
+				lquery:$ element (html)
+		)))
+	)
+)
+;;TODO read thread from capture.lisp
+;;NOTE: not using 4chan API because of deleted threads/posts
 (defconstant PAGE (
 	lquery:$ (
 		initialize (
-			dex:get "https://desuarchive.org/g/thread/101125290"
+			dex:get "https://desuarchive.org/g/thread/102165191"
 ))))
 (defvar *image* (
 	magick:new-magick-wand
@@ -27,6 +46,8 @@
 (magick:read-image *image* (
 	concatenate 'string "xc:" BACKGROUND
 ))
+;;TODO: figure out text wrapping
+;;TODO: figure out text indentation around image
 (let* (
 	(op-id (
 		lquery:$1 PAGE "header > div[class=post_data] > a[data-function=highlight]" (attr "data-post")
@@ -70,9 +91,12 @@
 				(magick:pixel-set-color *pixel-wand* BACKGROUND)
 				(magick:set-background-color op-post *pixel-wand*)
 				(magick:read-image op-post (
-					format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
+					format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
 
-~a</span>" BACKGROUND NAME (
+~a</span>" BACKGROUND TITLE (
+						str:replace-all "&" "&#38;" (
+							lquery:$1 page "h2[class=post_title]" (text) ;; thread title
+					)) NAME (
 						lquery:$1 page "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
 					)
 					TEXT (
@@ -86,9 +110,9 @@
 					) op-id QUOTEDBY (
 						lquery:$1 PAGE "div[class=backlink_list] > span[class=post_backlink]" (text)
 					) (
-						lquery:$1 PAGE "div[class=text]" (text)
-					)
-				))
+						pangofy(
+							lquery:$1 PAGE "div[class=text]"
+				))))
 				(magick:composite-image *image* op-post 54 T (
 					+ op-image-width 20
 				) 10)
@@ -108,29 +132,28 @@
 		(post-element (
 			lquery:$1 PAGE post-selector
 		))
-		(post-image (
+		(post-header (
 			magick:new-magick-wand
 		))
+		(post-text (
+			magick:new-magick-wand
+		))
+		(post-image-element(
+			lquery:$1 post-element "div[class=post_wrapper]  > div[class=thread_image_box]"
+		))
 	)
-	(magick:set-background-color post-image *pixel-wand*)
-	(magick:set-font post-image "fonts/ARIAL.TTF")
-	(magick:set-pointsize post-image 10.0)
-	(lquery:$ post-element "div[class=text] br" (replace-with "
-"))
-;;TODO: add "(OP)" when OP is quoted
-	(lquery:$ post-element "div[class=text] > span[class=greentext] > a[data-backlink=true]" (unwrap) (wrap-inner (format nil "<span foreground=\"~a\">" QUOTED)) (children) (unwrap)) ;; highlight quotes
-;;TODO:greentext
-;;TODO:links
-;;TODO:code
-;;TODO:/pol/ flags and ids
-	(magick:read-image post-image (
-		format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span>
-
-~a</span>" POSTBACKGROUND NAME (
+	(magick:set-background-color post-header *pixel-wand*)
+	(magick:set-font post-header "fonts/ARIAL.TTF")
+	(magick:set-pointsize post-header 10.0)
+	(magick:set-background-color post-text *pixel-wand*)
+	(magick:set-font post-text "fonts/ARIAL.TTF")
+	(magick:set-pointsize post-text 10.0)
+	(magick:read-image post-header (
+		format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" POSTBACKGROUND NAME (
 			lquery:$1 post-element "div[class=post_wrapper] > header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;poster name
 		)
 		TEXT (
-			local-time:format-timestring nil (
+			local-time:format-timestring nil ( ;;post time
 				local-time:parse-timestring (
 					lquery:$1 post-element "div[class=post_wrapper] > header > div[class=post_data] > span[class=time_wrap] > time" (attr "datetime")
 				)
@@ -139,12 +162,24 @@
 			)
 		) post-id QUOTEDBY (
 			lquery:$1 post-element "div[class=backlink_list] > span[class=post_backlink]" (text)
-		) (
+		)
+	))
+	(lquery:$ post-element "div[class=text] br" (replace-with "
+"))
+;;TODO: add "(OP)" when OP is quoted
+	(lquery:$ post-element "div[class=text] > span[class=greentext] > a[data-backlink=true]" (unwrap) (wrap-inner (format nil "<span foreground=\"~a\">" QUOTED)) (children) (unwrap)) ;; highlight quotes
+	(lquery:$ post-element "div[class=text] > a[target=_blank]" (wrap-inner (format nil "<span foreground=\"~a\">" LINK)) (children) (unwrap));; color links
+;;TODO:greentext
+;;TODO:links
+;;TODO:code
+;;TODO:/pol/ flags and ids
+;;TODO:trips
+	(magick:read-image post-text (
+		format nil "pango:<span background=\"~a\" weight=\"bold\">~a</span>" POSTBACKGROUND (
 			str:substring 19 -7 (
 				lquery:$1 post-element "div[class=text]" (serialize)
 			)
 		)
 	))
-	(magick:write-image post-image "test.png")
 ))
-;; (magick:write-image *image* "test.png")
+(magick:write-image *image* "test.png")
