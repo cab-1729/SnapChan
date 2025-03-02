@@ -14,6 +14,7 @@
 (ql:quickload "lquery")
 (ql:quickload "local-time")
 (ql:quickload "str")
+(ql:quickload "cl-ppcre")
 (defun pangofy (element)
 	(progn
 		(lquery:$ element "br" (replace-with "
@@ -31,16 +32,17 @@
 		)))
 	)
 )
-(defun post-text (gap_x gap_y post_x post_y background_color pango-text)
+(defun post-text (gap_x gap_y post_width background_color pango-text)
 	(let* (
 			(image (
 				magick:new-magick-wand
 			))
-			(surface (
-				cairo:create-image-surface :argb32 post_x post_y
+			(recording-surface (
+				cairo:create-recording-surface :color-alpha
 			))
+			(surface NIL)
 			(cr (
-				cairo:create-context surface
+				cairo:create-context recording-surface
 			))
 			(context (
 				pango:pango_font_map_create_context (
@@ -51,28 +53,8 @@
 				pango:pango_layout_new context
 			))
 			(last-rendered-index 0)
+			(height 0)
 		)
-		(cairo:set-source-rgba (
-				/ (
-					parse-integer (
-						subseq background 1 3
-					) :radix 16
-				) 255.0
-			) (
-				/ (
-					parse-integer (
-						subseq background 3 5
-					) :radix 16
-				) 255.0
-			) (
-				/ (
-					parse-integer (
-						subseq background 5 7
-					) :radix 16
-				) 255.0
-			)
-			1.0 cr)
-		(cairo:paint cr)
 		(cairo:set-source-rgba (
 				/ (
 					parse-integer (
@@ -100,11 +82,15 @@
 		(pango:pango_layout_set_markup layout pango-text -1)
 		(pango:pango_layout_set_width layout (
 			* pango:PANGO_SCALE (
-				- POST_X gap_x
+				- post_width gap_x
 		)))
 		(pango:pango_layout_set_height layout (
 			* pango:PANGO_SCALE gap_y
 		))
+		(pango:pango_cairo_layout_path (
+			slot-value cr 'cairo::pointer
+		) layout)
+		(pango:pango_layout_set_wrap layout :PANGO_WRAP_WORD_CHAR)
 		(pango:pango_cairo_show_layout (
 			slot-value cr 'cairo::pointer
 		) layout)
@@ -114,9 +100,17 @@
 					pango:pango_layout_get_text layout
 				)) 2
 		))
-		(cffi:with-foreign-object (;find wrap cursor
+		(cffi:with-foreign-objects (
+			(;find wrap cursor
 				rect 'pango:PangoRectangle
 			)
+			(
+				height-var :double
+			)
+			(
+				_ :double
+			)
+		)
 			(pango:pango_layout_index_to_pos layout last-rendered-index rect)
 			(if (
 				= 0 ( ;wrap needed
@@ -187,12 +181,12 @@
 						))
 				(cairo:move-to 0 gap_y cr)
 				(pango:pango_layout_set_width layout (
-					* pango:PANGO_SCALE gap_x
+					* pango:PANGO_SCALE post_width
 				))
-				(pango:pango_layout_set_height layout (
-					* pango:PANGO_SCALE (
-						- post_y gap_y
-					)))
+				(pango:pango_layout_set_width layout (
+					* pango:PANGO_SCALE post_width
+				))
+				(pango:pango_layout_set_height layout -1)
 				(pango:pango_layout_set_markup layout (
 					str:concat (
 						format nil "~{~A~}" (
@@ -200,20 +194,58 @@
 						)
 					) bottom-text
 				) -1)
+				(pango:pango_cairo_layout_path (
+					slot-value cr 'cairo::pointer
+				) layout)
+				(pango:pango_layout_set_wrap layout :PANGO_WRAP_WORD_CHAR)
 				(pango:pango_cairo_show_layout (
 					slot-value cr 'cairo::pointer
-				) layout
-				)
+				) layout)
+				))
+				(cairo::cairo_recording_surface_ink_extents (cairo::get-pointer recording-surface) _ _ _ height-var)
+				(setq height (
+					ceiling (
+						cffi:mem-ref height-var :double
 				)))
-			(magick:constitute-image image post_x post_y "BGRA" ':char (
-				sb-sys:vector-sap (
-					make-array (
-						* 4 post_x post_y; total pixel data
-					) :element-type '(unsigned-byte 8) :initial-contents (
-						coerce (
-							cairo:image-surface-get-data surface
-						) 'list
-					))))
+				(setq surface (
+					cairo:create-image-surface :argb32 post_width height
+				))
+				(setq cr (
+					cairo:create-context surface
+				))
+				(cairo:set-source-rgba (
+						/ (
+							parse-integer (
+								subseq background 1 3
+							) :radix 16
+						) 255.0
+					) (
+						/ (
+							parse-integer (
+								subseq background 3 5
+							) :radix 16
+						) 255.0
+					) (
+						/ (
+							parse-integer (
+								subseq background 5 7
+							) :radix 16
+						) 255.0
+					)
+					1.0 cr)
+				(cairo:paint cr);;paint background
+				(cairo:set-source-surface recording-surface 0 0 cr)
+				(cairo:paint cr);; paint text
+				(magick:constitute-image image post_width height "BGRA" ':char (
+					sb-sys:vector-sap (
+						make-array (
+							* 4 post_width height; total pixel data
+						) :element-type '(unsigned-byte 8) :initial-contents (
+							coerce (
+								cairo:image-surface-get-data surface
+							) 'list
+						))))
+			)
 			(cairo:destroy surface)
 			(return-from post-text image)
 	)
@@ -235,8 +267,6 @@
 (magick:read-image *image* (
 	concatenate 'string "xc:" BACKGROUND
 ))
-;;TODO: figure out text wrapping
-;;TODO: figure out text indentation around image
 (let (
 	(op-id (
 		lquery:$1 PAGE "header > div[class=post_data] > a[data-function=highlight]" (attr "data-post")
@@ -259,10 +289,9 @@
 				+ 20 op-image-width
 			))
 			(op-image-y (
-				+ 20 (
-					parse-integer(
-						lquery:$1 op-image-element "img" (attr "height")
-					))))
+				parse-integer(
+					lquery:$1 op-image-element "img" (attr "height")
+			)))
 			(op-post (
 				magick:new-magick-wand
 			))
@@ -272,11 +301,11 @@
 			(op-post-info (
 				magick:new-magick-wand
 			))
-		)
-			(magick:set-size op-post 2000 2000);;TODO: Calculate dimensions
-			(magick:read-image op-post (
-				concatenate 'string "xc:" BACKGROUND
+			(op-image-info (
+				magick:new-magick-wand
 			))
+			(op-post-text NIL)
+		)
 			(magick:read-image op-image (
 				lquery:$1 op-image-element (attr "href")
 			))
@@ -288,6 +317,8 @@
 			)
 			(magick:set-font op-post-info "fonts/ARIAL.TTF")
 			(magick:set-pointsize op-post-info 10.0)
+			(magick:set-font op-image-info "fonts/ARIAL.TTF")
+			(magick:set-pointsize op-image-info 10.0)
 			(magick:pixel-set-color *pixel-wand* BACKGROUND)
 			(magick:set-background-color op-post-info *pixel-wand*)
 			(magick:read-image op-post-info (
@@ -307,20 +338,56 @@
 					)
 				) op-id QUOTEDBY (
 					lquery:$1 PAGE "div[class=backlink_list] > span[class=post_backlink]" (text)
-				)))
-			(magick:composite-image op-post op-post-info 54 T op-image-x 0)
+			)))
+			(magick:read-image op-image-info (
+				format nil "pango:<span background=\"~a\" weight=\"bold\">File: <span foreground=\"~a\" underline='single'>~a</span> ~a</span>" BACKGROUND LINK (
+					lquery:$1 PAGE "div[class=post_file] > a[class=post_file_filename]" (text)
+				) ((
+					lambda (info-string)
+						(let* (
+							(infos (
+								cl-ppcre:split "," info-string
+							))
+							(filesize (
+								pop infos
+							))
+						)
+						(format nil "(~a KB, ~a)" (
+							round (
+								* 1.024 (
+									parse-integer (
+										subseq filesize 0 (
+											- (
+												length filesize
+											) 3
+						))))) (
+							pop infos
+						)))
+				) (
+					lquery:$1 PAGE "div[class=post_file]" (text)
+				))
+			))
+			(setq op-post-text (
+				post-text op-image-x op-image-y MAX-WIDTH BACKGROUND (
+					pangofy (
+						lquery:$1 PAGE "div[class=text]"
+			))))
+			(magick:set-size op-post MAX-WIDTH 2000);;TODO: Calculate dimensions
+			(magick:read-image op-post (
+				concatenate 'string "xc:" BACKGROUND
+			))
+			(magick:composite-image op-post op-image-info 54 T 0 0)
+			(magick:composite-image op-post op-post-info 54 T (
+				+ op-image-x 20
+			) 19)
 			(setq *posts* (
 				remove op-id *posts* :test 'string-equal
 			))
-			(magick:composite-image op-post (
-				post-text op-image-x op-image-y 2000 1000 BACKGROUND (
-					pangofy (
-						lquery:$1 PAGE "div[class=text]"
-					)
-				)
-			) 54 T 0 23)
+			(magick:composite-image op-post op-post-text 54 T 20 51);;19+13+19+20
 			(magick:composite-image op-post op-image
 				54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
-			T 0 0)
+			T 20 19)
 			(magick:write-image op-post "test.png") ;; testing
 		)))
+;; (let* (
+;; ))
