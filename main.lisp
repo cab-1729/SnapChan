@@ -7,8 +7,8 @@
 (uiop:chdir (uiop:pathname-directory-pathname *load-truename*))
 (format t "~a" (uiop:getcwd))
 ;;TODO: make loading paths absolute
-;;TODO: destroy wands not needed
 ;;TODO: fix squares (checkboxes)
+;;TODO: decide what to do if image exceeds mas size
 (load "parse.lisp")
 (ql:quickload "lisp-magick-wand")
 (ql:quickload "cl-pango")
@@ -276,12 +276,11 @@
 			(return-from post-text image)
 	)
 )
-;;TODO read thread from capture.lisp
 ;;NOTE: not using 4chan API because of deleted threads/posts
 (defconstant PAGE (
 	lquery:$ (
 		initialize (
-			dex:get "https://desuarchive.org/g/thread/103105320"
+			dex:get ARCHIVE
 ))))
 (defvar *image* (
 	magick:new-magick-wand
@@ -307,17 +306,8 @@
 			(op-image-element (
 				lquery:$1 PAGE "a[class=thread_image_link]"
 			))
-			(op-image-width (
-				parse-integer(
-					lquery:$1 op-image-element "img" (attr "width")
-				)))
-			(op-image-x (
-				+ 20 op-image-width
-			))
-			(op-image-y (
-				parse-integer(
-					lquery:$1 op-image-element "img" (attr "height")
-			)))
+			(op-image-x 0)
+			(op-image-y 0)
 			(op-post (
 				magick:new-magick-wand
 			))
@@ -335,8 +325,27 @@
 			(magick:read-image op-image (
 				lquery:$1 op-image-element (attr "href")
 			))
-			(magick:resize-image op-image op-image-width op-image-y 4;;CubicGaussian 
-			)
+			(if (
+				 expand op-id
+			)(progn
+				(setq op-image-x (
+					magick:get-image-width op-image
+				))
+				(setq op-image-y(
+					magick:get-image-height op-image
+				))
+			) (progn
+				(setq op-image-x (
+					parse-integer(
+						lquery:$1 op-image-element "img" (attr "width")
+					)))
+				(setq op-image-y (
+					parse-integer(
+						lquery:$1 op-image-element "img" (attr "height")
+				)))
+				(magick:resize-image op-image op-image-x op-image-y 4;;CubicGaussian 
+				)
+			))
 			(magick:set-font op-post-info "fonts/ARIAL.TTF")
 			(magick:set-pointsize op-post-info 10.0)
 			(magick:set-font op-image-info "fonts/ARIAL.TTF")
@@ -344,10 +353,10 @@
 			(magick:pixel-set-color *pixel-wand* BACKGROUND)
 			(magick:set-background-color op-post-info *pixel-wand*)
 			(magick:read-image op-post-info (
-				format nil "pango:<span background=\"~a\" weight=\"bold\"><span background=\"white\" foreground=\"black\" weight=\"ultralight\">⬜</span><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" BACKGROUND TITLE (
+				format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" BACKGROUND TITLE (
 					str:replace-all "&" "&#38;" (
 						lquery:$1 page "h2[class=post_title]" (text) ;; thread title
-				)) NAME (
+				)) NAME CHECKBOX (
 					lquery:$1 page "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
 				)
 				TEXT (
@@ -390,13 +399,15 @@
 				))
 			))
 			(setq op-post-text (
-				post-text op-image-x op-image-y BACKGROUND (
+				post-text (
+					+ 20 op-image-x
+				) op-image-y BACKGROUND (
 					pangofy (
 						lquery:$1 PAGE "div[class=text]"
 			))))
 			(magick:set-size op-post (
 				+ 20 (
-					magick:get-image-width op-post-text
+					magick:get-image-width op-post-text ;;TODOL return instead on call
 				)
 			) (
 				+ 51 (
@@ -410,7 +421,7 @@
 			))
 			(magick:composite-image op-post op-image-info 54 T 0 0)
 			(magick:composite-image op-post op-post-info 54 T (
-				+ op-image-x 20
+				+ op-image-x 40
 			) 19)
 			(setq *posts* (
 				remove op-id *posts* :test 'string-equal
@@ -419,6 +430,7 @@
 			(magick:composite-image op-post op-image
 				54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
 			T 20 19)
+			(magick:write-image op-post "op.png")
 		)))
 (let (
 		(post-image-width 0)
@@ -464,22 +476,34 @@
 			(magick:set-pointsize post-image-info 10.0)
 			(if post-image-element (
 				progn
-				(setq post-image-height (
-					parse-integer (
-						lquery:$1 post-image-element "img" (attr "height")
-				)))
-				(setq post-image-width (
-					parse-integer (
-						lquery:$1 post-image-element "img" (attr "width")
-				)))
 				(magick:read-image post-image (
 					lquery:$1 post-image-element (attr "href")
 				))
-				(magick:resize-image post-image post-image-width post-image-height 4;;CubicGaussian 
-			)
+				(if (
+					expand post-id
+				) (progn					
+					(setq post-image-height (
+						magick:get-image-height post-image
+					))
+					(setq post-image-width (
+						magick:get-image-width post-image
+					))
+				)(progn
+					(magick:resize-image post-image post-image-width post-image-height 4;;CubicGaussian 
+					)
+					(setq post-image-height (
+						parse-integer (
+							lquery:$1 post-image-element "img" (attr "height")
+					)))
+					(setq post-image-width (
+						parse-integer (
+							lquery:$1 post-image-element "img" (attr "width")
+					)))
+				)
+				)
 			))
 			(magick:read-image post-info (
-				format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\"><span background=\"white\" foreground=\"black\" weight=\"ultralight\">⬜</span>~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" POSTBACKGROUND NAME (
+				format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" POSTBACKGROUND NAME CHECKBOX (
 					lquery:$1 post-element "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
 				)
 				TEXT (
@@ -503,7 +527,7 @@
 			))
 			(magick:read-image post-image-info (
 				format nil "pango:<span background=\"~a\" weight=\"bold\">File: <span foreground=\"~a\" underline='single'>~a</span> ~a</span>" POSTBACKGROUND LINK (
-					lquery:$1 post-image-element "div[class=post_file] > a[class=post_file_filename]" (text)
+					lquery:$1 post-element "div[class=post_file] > a[class=post_file_filename]" (text)
 					) ((
 						lambda (info-string)
 							(let* (
@@ -530,10 +554,6 @@
 						lquery:$1 PAGE "div[class=post_file]" (text)
 					))
 				))
-			(magick:write-image post-image "test.png");;testing
-			(magick:write-image post-image-info "test1.png");;testing
-			(magick:write-image post-info "test2.png");;testing
-			(magick:write-image post-text-image "test3.png");; testing
 			(setq post-box-width (
 				+ 5 (
 					max (
@@ -541,13 +561,11 @@
 					) (
 						magick:get-image-width post-image-info
 					) (
-						+ (
+						+ 20 (
 							magick:get-image-width post-text-image
-						) (
-							magick:get-image-width post-image
-						)
-					)
+					))
 				) ;;2+2+1
+				;;TODO: Exand OP and remove bloat decider
 			))
 			(setq post-box-height (
 				+ 67 (;;2+19+15+3+13.33+13.33+2
@@ -563,17 +581,17 @@
 			(magick:pixel-set-color pixel-wand POSTBORDER)
 			(magick:draw-set-stroke-color draw-wand pixel-wand)
 			(magick:draw-set-stroke-width draw-wand 2.0);;one pixel on image one off image
-			(magick:draw-line draw-wand 0 post-box-height post-box-width post-box-height);;add borders
-			(magick:draw-line draw-wand post-box-width 0 post-box-width post-box-height);; add borders
+			(magick:draw-line draw-wand 0 post-box-height post-box-width post-box-height);;add bottom border
+			(magick:draw-line draw-wand post-box-width 0 post-box-width post-box-height);; add right border
 			(magick:draw-image post-box draw-wand)
 			(magick:composite-image post-box post-info 54 T 0 0)
 			(magick:composite-image post-box post-text-image 54 T 20 37);;19+15+3
-			(if post-element (
+			(if post-image-element (
 				progn
 				(magick:composite-image post-box post-image-info 54 T 0 19)
 				(magick:composite-image post-box post-image 54 T 20 37);;19+15+3
 			))
-			(magick:write-image post-box "post-box.png")
+			(magick:write-image post-box "post-box.png");;testing
 			(return);;testing
 	))
 )

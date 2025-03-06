@@ -1,4 +1,4 @@
-(defconstant THREAD "https://www.4chan.org/g/thread/103105320")
+(defparameter THREAD "https://boards.4chan.org/g/thread/103105320")
 (defconstant INCLUDE ">>103105329
 			 >>103106255
 			 >>103105747
@@ -8,6 +8,9 @@
 			 >>103109514
 			 >>103110941
 			 ")
+(defconstant EXPANDS ">>103105329
+>>103105320
+")
 ;image
 ;webm
 ;gif
