@@ -346,6 +346,11 @@
 				(magick:resize-image op-image op-image-x op-image-y 4;;CubicGaussian 
 				)
 			))
+			(if (
+				 > op-image-x MAX-WIDTH
+			) (
+				error "OP image size exceeds MAx-WIDTH"
+			))
 			(magick:set-font op-post-info "fonts/ARIAL.TTF")
 			(magick:set-pointsize op-post-info 10.0)
 			(magick:set-font op-image-info "fonts/ARIAL.TTF")
@@ -432,6 +437,9 @@
 			T 20 19)
 			(magick:write-image op-post "op.png")
 		)))
+(defconstant MAX-ALLOWABLE-SIZE (
+	- MAX-WIDTH 40
+))
 (let (
 		(post-image-width 0)
 		(post-image-height 0)
@@ -501,6 +509,13 @@
 					)))
 				)
 				)
+				(if (
+					> post-image-width MAX-ALLOWABLE-SIZE
+				)(
+					error (
+						format nil "Image of ~a will not fit in MAX-WIDTH=~a" post-id MAX-WIDTH
+					)
+				))
 			))
 			(magick:read-image post-info (
 				format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" POSTBACKGROUND NAME CHECKBOX (

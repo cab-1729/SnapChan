@@ -9,7 +9,6 @@
 			 >>103110941
 			 ")
 (defconstant EXPANDS ">>103105329
->>103105320
 ")
 ;image
 ;webm
