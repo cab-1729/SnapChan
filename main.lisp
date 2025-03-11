@@ -8,7 +8,6 @@
 (format t "~a" (uiop:getcwd))
 ;;TODO: make loading paths absolute
 ;;TODO: fix squares (checkboxes)
-;;TODO: decide what to do if image exceeds mas size
 (load "parse.lisp")
 (ql:quickload "lisp-magick-wand")
 (ql:quickload "cl-pango")
@@ -276,6 +275,70 @@
 			(return-from post-text image)
 	)
 )
+(defun get-image (post-id element) (
+	let* (
+		(image-link (
+			lquery:$1 element (attr "href")
+		))
+		(is-video (
+			ppcre:scan "\.(webm|gif|mp4)$" image-link
+		))
+		(img (
+			magick:new-magick-wand
+		))
+	) (
+		if (
+			expand post-id
+		) (
+			progn
+			(if is-video (
+				progn
+				(asdf:run-shell-command "ffmpeg -i ~a ~a /tmp/~a.~a" image-link (
+					if (
+						string-equal OUTPUT-EXTENSION "gif"
+					) "-frames 1"  ""
+				) post-id OUTPUT-EXTENSION)
+				(magick:read-image img (
+					format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
+				))
+			) (
+				magick:read-image img image-link
+			)) 
+			(values img (
+				magick:get-image-width img
+			) (
+				magick:get-image-height img
+			))
+		) (
+			let (
+				(img-height (
+					parse-integer(
+						lquery:$1 element "img" (attr "height")
+				)))
+				(img-width (
+					parse-integer(
+						lquery:$1 element "img" (attr "width")
+				)))
+			)
+				(if is-video (
+					progn
+					(asdf:run-shell-command "ffmpeg -i ~a ~a -vf scale=~a:~a /tmp/~a.~a" image-link (
+						if (
+							string-equal OUTPUT-EXTENSION "gif"
+						) "-frames 1"  ""
+					) img-width img-height post-id OUTPUT-EXTENSION)
+					(magick:read-image img (
+						format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
+					))
+				) (
+					progn
+					(magick:read-image img image-link)
+					(magick:resize-image img img-width img-height 4);;CubicGaussian 
+				)) 
+				(values img img-width img-height)
+		)
+	)
+))
 ;;NOTE: not using 4chan API because of deleted threads/posts
 (defconstant PAGE (
 	lquery:$ (
@@ -301,151 +364,121 @@
 		or INCLUDE-OP (
 			member op-id *posts* :test 'string-equal
 		)
-	)
-		(let* (
-			(op-image-element (
+	)(
+		multiple-value-bind (op-image op-image-x op-image-y) (
+			get-image op-id (
 				lquery:$1 PAGE "a[class=thread_image_link]"
-			))
-			(op-image-x 0)
-			(op-image-y 0)
-			(op-post (
-				magick:new-magick-wand
-			))
-			(op-image (
-				magick:new-magick-wand
-			))
-			(op-post-info (
-				magick:new-magick-wand
-			))
-			(op-image-info (
-				magick:new-magick-wand
-			))
-			(op-post-text NIL)
-		)
-			(magick:read-image op-image (
-				lquery:$1 op-image-element (attr "href")
-			))
-			(if (
-				 expand op-id
-			)(progn
-				(setq op-image-x (
-					magick:get-image-width op-image
+		)) (
+			let* (
+				(op-post (
+					magick:new-magick-wand
 				))
-				(setq op-image-y(
-					magick:get-image-height op-image
+				(op-post-info (
+					magick:new-magick-wand
 				))
-			) (progn
-				(setq op-image-x (
-					parse-integer(
-						lquery:$1 op-image-element "img" (attr "width")
-					)))
-				(setq op-image-y (
-					parse-integer(
-						lquery:$1 op-image-element "img" (attr "height")
-				)))
-				(magick:resize-image op-image op-image-x op-image-y 4;;CubicGaussian 
-				)
-			))
-			(if (
-				 > op-image-x MAX-WIDTH
-			) (
-				error "OP image size exceeds MAx-WIDTH"
-			))
-			(magick:set-font op-post-info "fonts/ARIAL.TTF")
-			(magick:set-pointsize op-post-info 10.0)
-			(magick:set-font op-image-info "fonts/ARIAL.TTF")
-			(magick:set-pointsize op-image-info 10.0)
-			(magick:pixel-set-color *pixel-wand* BACKGROUND)
-			(magick:set-background-color op-post-info *pixel-wand*)
-			(magick:read-image op-post-info (
-				format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" BACKGROUND TITLE (
-					str:replace-all "&" "&#38;" (
-						lquery:$1 page "h2[class=post_title]" (text) ;; thread title
-				)) NAME CHECKBOX (
-					lquery:$1 page "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
-				)
-				TEXT (
-					local-time:format-timestring nil (
-						local-time:parse-timestring (
-							lquery:$1 PAGE "header > div[class=post_data] > span[class=time_wrap] > time" (attr "datetime")
-						)
-					) :format '(
-						(:month 2) "/" (:day 2) "/" :short-year "(" :short-weekday ")" (:hour 2) ":" (:min 2) ":" (:sec 2)
-					)
-				) op-id QUOTEDBY (
-					lquery:$1 PAGE "div[class=backlink_list] > span[class=post_backlink]" (text)
-			)))
-			(magick:read-image op-image-info (
-				format nil "pango:<span background=\"~a\" weight=\"bold\">File: <span foreground=\"~a\" underline='single'>~a</span> ~a</span>" BACKGROUND LINK (
-					lquery:$1 PAGE "div[class=post_file] > a[class=post_file_filename]" (text)
-				) ((
-					lambda (info-string)
-						(let* (
-							(infos (
-								cl-ppcre:split "," info-string
-							))
-							(filesize (
-								pop infos
-							))
-						)
-						(format nil "(~a KB, ~a)" (
-							round ( ;;display integer
-								* 1.024 ( ;;KiB to KB
-									parse-integer (
-										subseq filesize 0 ( ;;extract value
-											- (
-												length filesize
-											) 3
-						))))) (
-							pop infos
-						)))
+				(op-image-info (
+					magick:new-magick-wand
+				))
+				(op-post-text NIL)
+			)
+				(if (
+					 > op-image-x MAX-WIDTH
 				) (
-					lquery:$1 PAGE "div[class=post_file]" (text)
+					error "OP image size exceeds MAx-WIDTH"
 				))
-			))
-			(setq op-post-text (
-				post-text (
-					+ 20 op-image-x
-				) op-image-y BACKGROUND (
-					pangofy (
-						lquery:$1 PAGE "div[class=text]"
-			))))
-			(magick:set-size op-post (
-				+ 20 (
-					magick:get-image-width op-post-text ;;TODOL return instead on call
-				)
-			) (
-				+ 51 (
-					max (
-						 magick:get-image-height op-post-text
-					) op-image-y
-				)
-			))
-			(magick:read-image op-post (
-				concatenate 'string "xc:" BACKGROUND
-			))
-			(magick:composite-image op-post op-image-info 54 T 0 0)
-			(magick:composite-image op-post op-post-info 54 T (
-				+ op-image-x 40
-			) 19)
-			(setq *posts* (
-				remove op-id *posts* :test 'string-equal
-			))
-			(magick:composite-image op-post op-post-text 54 T 20 51);;19+13+19+20
-			(magick:composite-image op-post op-image
-				54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
-			T 20 19)
-			(magick:write-image op-post "op.png")
-		)))
+				(magick:set-font op-post-info "fonts/ARIAL.TTF")
+				(magick:set-pointsize op-post-info 10.0)
+				(magick:set-font op-image-info "fonts/ARIAL.TTF")
+				(magick:set-pointsize op-image-info 10.0)
+				(magick:pixel-set-color *pixel-wand* BACKGROUND)
+				(magick:set-background-color op-post-info *pixel-wand*)
+				(magick:read-image op-post-info (
+					format nil "pango:<span background=\"~a\" weight=\"bold\"><span foreground=\"~a\">~a</span> <span foreground=\"~a\">~a~a</span> <span foreground=\"~a\">~a No.~a  <span foreground=\"~a\">~a</span></span></span>" BACKGROUND TITLE (
+						str:replace-all "&" "&#38;" (
+							lquery:$1 page "h2[class=post_title]" (text) ;; thread title
+					)) NAME CHECKBOX (
+						lquery:$1 page "header > div[class=post_data] > span[class=post_poster_data] > span[class=post_author]" (text) ;;op name
+					)
+					TEXT (
+						local-time:format-timestring nil (
+							local-time:parse-timestring (
+								lquery:$1 PAGE "header > div[class=post_data] > span[class=time_wrap] > time" (attr "datetime")
+							)
+						) :format '(
+							(:month 2) "/" (:day 2) "/" :short-year "(" :short-weekday ")" (:hour 2) ":" (:min 2) ":" (:sec 2)
+						)
+					) op-id QUOTEDBY (
+						lquery:$1 PAGE "div[class=backlink_list] > span[class=post_backlink]" (text)
+				)))
+				(magick:read-image op-image-info (
+					format nil "pango:<span background=\"~a\" weight=\"bold\">File: <span foreground=\"~a\" underline='single'>~a</span> ~a</span>" BACKGROUND LINK (
+						lquery:$1 PAGE "div[class=post_file] > a[class=post_file_filename]" (text)
+					) ((
+						lambda (info-string)
+							(let* (
+								(infos (
+									cl-ppcre:split "," info-string
+								))
+								(filesize (
+									pop infos
+								))
+							)
+							(format nil "(~a KB, ~a)" (
+								round ( ;;display integer
+									* 1.024 ( ;;KiB to KB
+										parse-integer (
+											subseq filesize 0 ( ;;extract value
+												- (
+													length filesize
+												) 3
+							))))) (
+								pop infos
+							)))
+					) (
+						lquery:$1 PAGE "div[class=post_file]" (text)
+					))
+				))
+				(setq op-post-text (
+					post-text (
+						+ 20 op-image-x
+					) op-image-y BACKGROUND (
+						pangofy (
+							lquery:$1 PAGE "div[class=text]"
+				))))
+				(magick:set-size op-post (
+					+ 20 (
+						magick:get-image-width op-post-text ;;TODOL return instead on call
+					)
+				) (
+					+ 51 (
+						max (
+							 magick:get-image-height op-post-text
+						) op-image-y
+					)
+				))
+				(magick:read-image op-post (
+					concatenate 'string "xc:" BACKGROUND
+				))
+				(magick:composite-image op-post op-image-info 54 T 0 0)
+				(magick:composite-image op-post op-post-info 54 T (
+					+ op-image-x 40
+				) 19)
+				(setq *posts* (
+					remove op-id *posts* :test 'string-equal
+				))
+				(magick:composite-image op-post op-post-text 54 T 20 51);;19+13+19+20
+				(magick:composite-image op-post op-image
+					54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
+				T 20 19)
+				(magick:write-image op-post "op.png")
+))))
 (defconstant MAX-ALLOWABLE-SIZE (
 	- MAX-WIDTH 40
 ))
 (let (
 		(post-image-width 0)
 		(post-image-height 0)
-		(post-image (
-			magick:new-magick-wand
-		))
+		(post-image nil)
 		(post-info (
 			magick:new-magick-wand
 		))
@@ -484,36 +517,15 @@
 			(magick:set-pointsize post-image-info 10.0)
 			(if post-image-element (
 				progn
-				(magick:read-image post-image (
-					lquery:$1 post-image-element (attr "href")
+				(multiple-value-setq (post-image post-image-width post-image-height) (
+					get-image post-id post-image-element
 				))
 				(if (
-					expand post-id
-				) (progn					
-					(setq post-image-height (
-						magick:get-image-height post-image
-					))
-					(setq post-image-width (
-						magick:get-image-width post-image
-					))
-				)(progn
-					(magick:resize-image post-image post-image-width post-image-height 4;;CubicGaussian 
-					)
-					(setq post-image-height (
-						parse-integer (
-							lquery:$1 post-image-element "img" (attr "height")
-					)))
-					(setq post-image-width (
-						parse-integer (
-							lquery:$1 post-image-element "img" (attr "width")
-					)))
-				)
-				)
-				(if (
 					> post-image-width MAX-ALLOWABLE-SIZE
-				)(
+				)
+					(
 					error (
-						format nil "Image of ~a will not fit in MAX-WIDTH=~a" post-id MAX-WIDTH
+						format nil "Image of post ~a exceeds maximum allowable width of ~a." post-id MAX-ALLOWABLE-SIZE
 					)
 				))
 			))
@@ -580,7 +592,6 @@
 							magick:get-image-width post-text-image
 					))
 				) ;;2+2+1
-				;;TODO: Exand OP and remove bloat decider
 			))
 			(setq post-box-height (
 				+ 67 (;;2+19+15+3+13.33+13.33+2
@@ -607,6 +618,7 @@
 				(magick:composite-image post-box post-image 54 T 20 37);;19+15+3
 			))
 			(magick:write-image post-box "post-box.png");;testing
+			(magick:destroy-magick-wand post-image)
 			(return);;testing
 	))
 )
