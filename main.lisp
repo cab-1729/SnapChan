@@ -2,11 +2,14 @@
 ;;https://www.w3.org/TR/selectors-3/
 ;;https://imagemagick.org/api/magick-property.php
 ;;https://imagemagick.org/api/magick-image.php
+;;https://imagemagick.org/api/magick-wand.php
 ;;https://imagemagick.org/api/drawing-wand.php
 (require :uiop)
 (uiop:chdir (uiop:pathname-directory-pathname *load-truename*))
 (format t "~a" (uiop:getcwd))
+;;TODO: use optimizations, disable safeties and type checks, precompile, all steps to make code faster
 ;;TODO: make loading paths absolute
+;;TODO: add code support
 ;;TODO: fix squares (checkboxes)
 (load "parse.lisp")
 (ql:quickload "lisp-magick-wand")
@@ -17,6 +20,7 @@
 (ql:quickload "local-time")
 (ql:quickload "str")
 (ql:quickload "cl-ppcre")
+(magick:wand-genesis)
 (defun pangofy (element)
 	(progn
 		(lquery:$ element "br" (replace-with "
@@ -28,6 +32,8 @@
 			format nil "<span foreground=~a>" LINK
 		)) (children) (unwrap)) ;;link
 		(lquery:$ element "span[class=greentext]" (attr "foreground" GREENTEXT) (remove-attr "class"));;greentext
+		(lquery:$ element "pre" (wrap-inner "<tt>") (children) (unwrap) (wrap "<span background=\"red\">"));;code
+		(lquery:$ element "code" (wrap-inner "<tt>") (children) (unwrap) (wrap "<span background=\"red\">"));;inline code
 		(string-trim
 			" " (vector-pop(
 				lquery:$ element (html)
@@ -293,14 +299,15 @@
 			progn
 			(if is-video (
 				progn
-				(asdf:run-shell-command "ffmpeg -i ~a ~a /tmp/~a.~a" image-link (
+				(asdf:run-shell-command "ffmpeg -y -i ~a ~a /tmp/~a.~a" image-link (
 					if (
 						string-equal OUTPUT-EXTENSION "gif"
-					) "-frames 1"  ""
+					) "" "-frames 1"
 				) post-id OUTPUT-EXTENSION)
 				(magick:read-image img (
 					format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
 				))
+				(magick:coalesce-images img)
 			) (
 				magick:read-image img image-link
 			)) 
@@ -322,10 +329,10 @@
 			)
 				(if is-video (
 					progn
-					(asdf:run-shell-command "ffmpeg -i ~a ~a -vf scale=~a:~a /tmp/~a.~a" image-link (
+					(asdf:run-shell-command "ffmpeg -y -i ~a ~a -vf scale=~a:~a /tmp/~a.~a" image-link (
 						if (
 							string-equal OUTPUT-EXTENSION "gif"
-						) "-frames 1"  ""
+						) "" "-frames 1"
 					) img-width img-height post-id OUTPUT-EXTENSION)
 					(magick:read-image img (
 						format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
@@ -333,6 +340,7 @@
 				) (
 					progn
 					(magick:read-image img image-link)
+					(magick:coalesce-images img)
 					(magick:resize-image img img-width img-height 4);;CubicGaussian 
 				)) 
 				(values img img-width img-height)
@@ -615,10 +623,59 @@
 			(if post-image-element (
 				progn
 				(magick:composite-image post-box post-image-info 54 T 0 19)
-				(magick:composite-image post-box post-image 54 T 20 37);;19+15+3
+				(if (
+						;; and is-video (
+							string-equal OUTPUT-EXTENSION "gif"
+						;; )
+					) (;;gif composite
+						progn
+						(setq post-image (
+							magick:coalesce-images post-image
+						))
+						(let (
+							(animation-frame nil)
+							(composited-frame nil)
+							(composited-gif (
+								magick:new-magick-wand
+							))
+						) 
+							(dotimes (i (
+								magick:get-number-images post-image
+							)) (
+								progn
+								(magick:set-iterator-index post-image i)
+								(setq animation-frame (
+									magick:get-image post-image
+								))
+								(setq composited-frame (
+									magick:clone-magick-wand post-box
+								))
+								(magick:composite-image composited-frame animation-frame 54 T 20 37);;19+15+3
+								(magick:set-image-delay composited-frame (
+									magick:get-image-delay post-image
+								))
+								(magick:set-image-dispose composited-frame (
+									magick:get-image-dispose post-image
+								))
+								(magick:add-image composited-gif composited-frame)
+								(magick:destroy-magick-wand composited-frame)
+								(magick:destroy-magick-wand animation-frame)
+							))
+							(magick:destroy-magick-wand post-box)
+							(setq post-box composited-gif)
+						)
+					) (;;normal composite
+						magick:composite-image post-box post-image 54 T 20 37;;19+15+3
+					)
+				)
 			))
-			(magick:write-image post-box "post-box.png");;testing
 			(magick:destroy-magick-wand post-image)
+			(magick:destroy-magick-wand post-info)
+			(magick:destroy-magick-wand post-image-info)
+			(magick:destroy-magick-wand post-text-image)
+			(magick:write-images post-box "post-box.gif" T);;testing
+			;;TODO: cleanup
 			(return);;testing
 	))
 )
+(magick:wand-terminus)
