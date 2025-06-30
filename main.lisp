@@ -315,7 +315,7 @@
 				magick:get-image-width img
 			) (
 				magick:get-image-height img
-			))
+			) is-video)
 		) (
 			let (
 				(img-height (
@@ -343,7 +343,7 @@
 					(magick:coalesce-images img)
 					(magick:resize-image img img-width img-height 4);;CubicGaussian 
 				)) 
-				(values img img-width img-height)
+				(values img img-width img-height is-video)
 		)
 	)
 ))
@@ -367,13 +367,14 @@
 	(op-id (
 		lquery:$1 PAGE "header > div[class=post_data] > a[data-function=highlight]" (attr "data-post")
 	))
+	(is-video nil)
 )
 	(if (
 		or INCLUDE-OP (
 			member op-id *posts* :test 'string-equal
 		)
 	)(
-		multiple-value-bind (op-image op-image-x op-image-y) (
+		multiple-value-bind (op-image op-image-x op-image-y is-video) (
 			get-image op-id (
 				lquery:$1 PAGE "a[class=thread_image_link]"
 		)) (
@@ -475,10 +476,54 @@
 					remove op-id *posts* :test 'string-equal
 				))
 				(magick:composite-image op-post op-post-text 54 T 20 51);;19+13+19+20
-				(magick:composite-image op-post op-image
-					54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
-				T 20 19)
-				(magick:write-image op-post "op.png")
+				(if (
+						and is-video (
+							string-equal OUTPUT-EXTENSION "gif"
+						)
+					) (;;gif composite
+						progn
+						(setq op-image (
+							magick:coalesce-images op-image
+						))
+						(let (
+							(animation-frame nil)
+							(composited-frame nil)
+							(composited-gif (
+								magick:new-magick-wand
+							))
+						) 
+							(dotimes (i (
+								magick:get-number-images op-image
+							)) (
+								progn
+								(magick:set-iterator-index op-image i)
+								(setq animation-frame (
+									magick:get-image op-image
+								))
+								(setq composited-frame (
+									magick:clone-magick-wand op-post
+								))
+								(magick:composite-image composited-frame animation-frame 54 T 20 37);;19+15+3
+								(magick:set-image-delay composited-frame (
+									magick:get-image-delay op-image
+								))
+								(magick:set-image-dispose composited-frame (
+									magick:get-image-dispose op-image
+								))
+								(magick:add-image composited-gif composited-frame)
+								(magick:destroy-magick-wand composited-frame)
+								(magick:destroy-magick-wand animation-frame)
+							))
+							(magick:destroy-magick-wand op-post)
+							(setq op-post composited-gif)
+						)
+					) (;;normal composite
+						magick:composite-image op-post op-image 
+						54 ;;OverCompositeImage https://github.com/ImageMagick/ImageMagick/blob/5fcf6ae2a93af8771b6a407eb8e14a27ced54bc2/MagickCore/composite.h#L81
+						T 20 37;;19+15+3
+					)
+				)
+				(magick:write-images op-post "op.gif" T);;testing
 ))))
 (defconstant MAX-ALLOWABLE-SIZE (
 	- MAX-WIDTH 40
@@ -487,6 +532,7 @@
 		(post-image-width 0)
 		(post-image-height 0)
 		(post-image nil)
+		(is-video nil)
 		(post-info (
 			magick:new-magick-wand
 		))
@@ -525,7 +571,7 @@
 			(magick:set-pointsize post-image-info 10.0)
 			(if post-image-element (
 				progn
-				(multiple-value-setq (post-image post-image-width post-image-height) (
+				(multiple-value-setq (post-image post-image-width post-image-height is-video) (
 					get-image post-id post-image-element
 				))
 				(if (
@@ -624,9 +670,9 @@
 				progn
 				(magick:composite-image post-box post-image-info 54 T 0 19)
 				(if (
-						;; and is-video (
+						and is-video (
 							string-equal OUTPUT-EXTENSION "gif"
-						;; )
+						)
 					) (;;gif composite
 						progn
 						(setq post-image (
@@ -674,7 +720,6 @@
 			(magick:destroy-magick-wand post-image-info)
 			(magick:destroy-magick-wand post-text-image)
 			(magick:write-images post-box "post-box.gif" T);;testing
-			;;TODO: cleanup
 			(return);;testing
 	))
 )
