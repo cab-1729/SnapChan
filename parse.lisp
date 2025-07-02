@@ -5,14 +5,14 @@
 	mapcar (
 		lambda (x) (subseq x 2)
 	) (
-		ppcre:all-matches-as-strings ">>[0-9]{9}" INCLUDE
+		ppcre:all-matches-as-strings ">>[0-9]+" INCLUDE
 	)
 ))
 (defconstant *expands* (
 	mapcar (
 		lambda (x) (subseq x 2)
 	) (
-		ppcre:all-matches-as-strings ">>[0-9]{9}" EXPANDS
+		ppcre:all-matches-as-strings ">>[0-9]+" EXPANDS
 	)
 ))
 (setq THREAD (;;4chan.og
