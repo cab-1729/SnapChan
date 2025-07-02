@@ -307,7 +307,9 @@
 				(magick:read-image img (
 					format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
 				))
-				(magick:coalesce-images img)
+				(delete-file (
+					format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
+				))
 			) (
 				magick:read-image img image-link
 			)) 
@@ -335,6 +337,9 @@
 						) "" "-frames 1"
 					) img-width img-height post-id OUTPUT-EXTENSION)
 					(magick:read-image img (
+						format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
+					))
+					(delete-file (
 						format nil "/tmp/~a.~a" post-id OUTPUT-EXTENSION
 					))
 				) (
@@ -455,9 +460,16 @@
 							lquery:$1 PAGE "div[class=text]"
 				))))
 				(magick:set-size op-post (
-					+ 20 (
-						magick:get-image-width op-post-text ;;TODOL return instead on call
-					)
+					max (
+						 magick:get-image-width op-image-info
+					) (
+						+ 40 op-image-x (
+							magick:get-image-width op-post-info
+						)
+					) (
+						+ 20 (
+							 magick:get-image-width op-post-text
+						))
 				) (
 					+ 51 (
 						max (
