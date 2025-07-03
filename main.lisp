@@ -541,7 +541,7 @@
 	- MAX-WIDTH 40
 ))
 (let (
-		(post-image-width 0)
+		(post-image-width -20);;negate padding between image and text
 		(post-image-height 0)
 		(post-image nil)
 		(is-video nil)
