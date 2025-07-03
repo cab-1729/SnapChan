@@ -726,12 +726,13 @@
 						magick:composite-image post-box post-image 54 T 20 37;;19+15+3
 					)
 				)
-			))
-			(magick:destroy-magick-wand post-image)
+				(magick:destroy-magick-wand post-image)
+				(magick:destroy-magick-wand post-image-info)
+			)
+			)
 			(magick:destroy-magick-wand post-info)
-			(magick:destroy-magick-wand post-image-info)
 			(magick:destroy-magick-wand post-text-image)
-			(magick:write-images post-box "post-box.gif" T);;testing
+			(magick:write-image post-box "post-box.png");;testing
 			(return);;testing
 	))
 )
