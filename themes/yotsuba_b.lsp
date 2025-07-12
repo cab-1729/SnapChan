@@ -8,3 +8,4 @@
 (defconstant QUOTED "#dd0000")
 (defconstant LINK "#34345c")
 (defconstant GREENTEXT "#789922")
+(defconstant CODEBACKGROUND "#ffffff")

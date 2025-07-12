@@ -21,10 +21,13 @@
 (ql:quickload "str")
 (ql:quickload "cl-ppcre")
 (magick:wand-genesis)
-(defun pangofy (element)
+(defun pangofy (element background_color)
 	(progn
 		(lquery:$ element "br" (replace-with "
 "))
+		(lquery:$ element (wrap-inner (
+			format nil "<span background=~a>" background_color
+		)))
 		(lquery:$ element "span[class=greentext] > a[class=backlink]" (wrap-inner (
 			format nil "<span foreground=~a>" QUOTED
 		)) (children) (unwrap) (unwrap) ) ;;quote
@@ -32,8 +35,12 @@
 			format nil "<span foreground=~a>" LINK
 		)) (children) (unwrap)) ;;link
 		(lquery:$ element "span[class=greentext]" (attr "foreground" GREENTEXT) (remove-attr "class"));;greentext
-		(lquery:$ element "pre" (wrap-inner "<tt>") (children) (unwrap) (wrap "<span background=\"red\">"));;code
-		(lquery:$ element "code" (wrap-inner "<tt>") (children) (unwrap) (wrap "<span background=\"red\">"));;inline code
+		(lquery:$ element "pre" (wrap-inner "<tt>") (children) (unwrap) (wrap-inner (
+			format nil "<span background=~a>" CODEBACKGROUND
+		)));;code
+		(lquery:$ element "code" (wrap-inner "<tt>") (children) (unwrap) (wrap (
+			format nil "<span background=~a>" CODEBACKGROUND
+		)));;inline code
 		(string-trim
 			" " (vector-pop(
 				lquery:$ element (html)
@@ -458,7 +465,7 @@
 					) op-image-y BACKGROUND (
 						pangofy (
 							lquery:$1 PAGE "div[class=text]"
-				))))
+				) BACKGROUND )))
 				(magick:set-size op-post (
 					max (
 						 magick:get-image-width op-image-info
@@ -535,7 +542,7 @@
 						T 20 37;;19+15+3
 					)
 				)
-				(magick:write-images op-post "op.gif" T);;testing
+				(magick:write-image op-post "op.png");;testing
 ))))
 (defconstant MAX-ALLOWABLE-SIZE (
 	- MAX-WIDTH 40
@@ -616,7 +623,7 @@
 				) post-image-height POSTBACKGROUND (
 					pangofy (
 						lquery:$1 post-element "div[class=text]"
-				))
+				) POSTBACKGROUND)
 			))
 			(magick:read-image post-image-info (
 				format nil "pango:<span background=\"~a\" weight=\"bold\">File: <span foreground=\"~a\" underline='single'>~a</span> ~a</span>" POSTBACKGROUND LINK (
